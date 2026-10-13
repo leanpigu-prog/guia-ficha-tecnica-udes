@@ -262,6 +262,9 @@
   .aviso-suma:empty { display: none; }
 
   .tabla-wrap { overflow-x: auto; margin: 14px 0; border: 1px solid var(--borde); border-radius: var(--radio); background: #fff; }
+  .conmutador { display: inline-flex; align-items: center; gap: 10px; margin: 6px 0 10px; font-weight: 600; cursor: pointer; min-height: 44px; }
+  .conmutador input { width: 20px; height: 20px; accent-color: var(--azul-medio); }
+  .opcional { font-weight: 500; font-size: .8em; opacity: .7; }
   table.estrato { width: 100%; border-collapse: collapse; font-size: .94rem; min-width: 520px; font-variant-numeric: tabular-nums; }
   table.estrato th { background: var(--azul-claro); color: var(--azul-hondo); padding: 10px 14px; text-align: left; font-weight: 700; font-size: .84rem; }
   table.estrato th.num, table.estrato td.num { text-align: right; }
@@ -671,7 +674,13 @@
         <p class="ajuste" id="ajuste" hidden>Para obtener esa muestra con una respuesta del <strong id="aj-r">70%</strong>, invite a <strong id="aj-n">—</strong> <span id="aj-nota">personas.</span></p>
       </div>
 
-      <h3 class="sub">Distribución proporcional por estrato</h3>
+      <h3 class="sub">Distribución proporcional por estrato <span class="opcional">(opcional)</span></h3>
+      <label class="conmutador" for="chk-estratificar">
+        <input type="checkbox" id="chk-estratificar" checked>
+        <span>Distribuir la muestra por estratos</span>
+      </label>
+      <p class="pista" id="aviso-sin-estratos" hidden>Sin estratificar: la muestra se calcula sobre el total de la población y la selección es aleatoria simple. Active la casilla si necesita repartirla por grupos.</p>
+      <div id="bloque-estratos">
       <p class="lead">Una vez calculado n total, distribuya la muestra entre los estratos en proporción al tamaño de cada uno. Escriba el nombre de cada estrato y cuántos <span data-pob="plural">administrativos</span> tiene:</p>
 
       <div class="campo campo-var">
@@ -700,6 +709,7 @@
           <tbody id="tbody-estratos"></tbody>
           <tfoot><tr><td>Total</td><td class="num" id="tb-tot-n">—</td><td>100%</td><td class="num" id="tb-tot-m">—</td><td class="num" id="tb-tot-i">—</td></tr></tfoot>
         </table>
+      </div>
       </div>
 
       <div class="btns">
@@ -1255,7 +1265,7 @@
     // ===== ESTADO (población + estratos) =====
     const CLAVE = 'guia_ficha_tecnica_udes_v2';
     const CLAVE_V1 = 'guia_ficha_tecnica_udes_v1';
-    const ESTADO = { pob: 'administrativos', otra: '', variable: 'Campus', estratos: clonarFilas('Campus'), editado: false, aplicados: {} };
+    const ESTADO = { pob: 'administrativos', otra: '', variable: 'Campus', estratos: clonarFilas('Campus'), editado: false, aplicados: {}, estratificar: true };
 
     function valor(campo) {
       const P = POBLACIONES[ESTADO.pob];
@@ -1352,7 +1362,7 @@
       try {
         localStorage.setItem(CLAVE, JSON.stringify({
           pob: ESTADO.pob, otra: ESTADO.otra, variable: ESTADO.variable, estratos: ESTADO.estratos,
-          editado: ESTADO.editado, aplicados: ESTADO.aplicados, form: form
+          editado: ESTADO.editado, aplicados: ESTADO.aplicados, estratificar: ESTADO.estratificar, form: form
         }));
         $('guardado').innerHTML = '<svg class="ico" aria-hidden="true"><use href="#i-save"/></svg>Guardado en este navegador';
       } catch (e) {
@@ -1375,6 +1385,7 @@
           }
           ESTADO.editado = !!o.editado;
           ESTADO.aplicados = o.aplicados || {};
+          ESTADO.estratificar = o.estratificar !== false;
           formGuardado = o.form || null;
         } else {
           const v1 = JSON.parse(localStorage.getItem(CLAVE_V1) || 'null');
@@ -1589,7 +1600,7 @@
         fila.querySelector('.est-n').addEventListener('input', ev => {
           ESTADO.estratos[i].v = ev.target.value; ESTADO.editado = true;
           const tot = tamanosEstratos(ESTADO.estratos).reduce((a, b) => a + b, 0);
-          if (tab === 'finita' && tot >= 2) $('inp-N').value = tot;
+          if (ESTADO.estratificar && tab === 'finita' && tot >= 2) $('inp-N').value = tot;
           calcular(); guardarPronto();
         });
         fila.querySelector('.btn-quitar').addEventListener('click', () => {
@@ -1606,8 +1617,20 @@
 
     function sincronizarN() {
       const tot = tamanosEstratos(ESTADO.estratos).reduce((a, b) => a + b, 0);
-      if (tab === 'finita' && tot >= 2) $('inp-N').value = tot;
+      if (ESTADO.estratificar && tab === 'finita' && tot >= 2) $('inp-N').value = tot;
     }
+
+    function aplicarEstratificar() {
+      $('chk-estratificar').checked = ESTADO.estratificar;
+      $('bloque-estratos').hidden = !ESTADO.estratificar;
+      $('aviso-sin-estratos').hidden = ESTADO.estratificar;
+    }
+    $('chk-estratificar').addEventListener('change', () => {
+      ESTADO.estratificar = $('chk-estratificar').checked;
+      aplicarEstratificar();
+      if (ESTADO.estratificar) sincronizarN();
+      calcular(); guardarPronto();
+    });
 
     $('btn-add-estrato').addEventListener('click', () => {
       if (ESTADO.estratos.length >= MAX_ESTRATOS) return;
@@ -1674,7 +1697,7 @@
       $('ft-error').value = '±' + String(ultimo.e).replace('.', ',') + '%';
       const vals = tamanosEstratos(ESTADO.estratos);
       const m = repartir(ultimo.n, vals);
-      if (vals.some(x => x > 0)) $('ft-campus').value = ESTADO.estratos.map((e, i) => (e.n.trim() || 'Estrato ' + (i + 1)) + ' ' + m[i]).join(' · ');
+      if (ESTADO.estratificar && vals.some(x => x > 0)) $('ft-campus').value = ESTADO.estratos.map((e, i) => (e.n.trim() || 'Estrato ' + (i + 1)) + ' ' + m[i]).join(' · ');
       guardarTodo();
       mostrarToast('Datos pasados a la plantilla (Paso 9)');
       $('paso9').scrollIntoView({ behavior: reducido() ? 'auto' : 'smooth', block: 'start' });
@@ -1777,6 +1800,7 @@
       $('ft-conf-text').value = CONF_DEFECTO;
       ESTADO.aplicados = {};
       ESTADO.editado = false;
+      ESTADO.estratificar = true; aplicarEstratificar();
       ESTADO.variable = POBLACIONES[ESTADO.pob].variable;
       ESTADO.estratos = clonarFilas(ESTADO.variable);
       $('sel-var').value = ESTADO.variable;
@@ -1804,6 +1828,7 @@
     }
     aplicarTextos(false);
     refrescarDefaultsPlantilla(false);
+    aplicarEstratificar();
     construirEstratos();
     sincronizarN();
 
